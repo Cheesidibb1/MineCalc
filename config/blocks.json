@@ -1,0 +1,26 @@
+{
+    "blocks":
+    [
+        {
+            "name": "air",
+            "id": "mnclc:air",
+            "texturepath": "../textures/air.png"
+        },
+        {
+            "name": "dirt",
+            "id": "mnclc:dirt",
+            "texturepath": "../textures/dirt.png"
+        },
+        {
+            "name": "grass block",
+            "id": "mnclc:grass_block",
+            "texturepath": "../textures/grass_block.png"
+        },
+        {
+            "name":"grass",
+            "id":"mnclc:grass",
+            "texturepath":"../textures/grass.png"
+        }
+
+    ]
+}
