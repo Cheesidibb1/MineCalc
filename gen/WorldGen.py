@@ -9,14 +9,17 @@ def make_world_folder(name):
     return f"./saves/{name}"
 
 # ---- CONFIG ----
-WORLD_FOLDER = make_world_folder(input("name: "))
+WORLD_NAME = input("World name: ")
+WORLD_FOLDER = make_world_folder(WORLD_NAME)
 WORLD_FOLDER_CHUNKS = f"{WORLD_FOLDER}/chunks"
 WORLD_FOLDER_NBTS = f"{WORLD_FOLDER}/nbts"
+WORLD_FOLDER_BIOME_MAP = f"{WORLD_FOLDER}/biome_map"
 CHUNK_SIZE = 16
 CHUNK_HEIGHT = 256
-CACHE_LIMIT = 50
-CHUNK_AMT_X = int(input("Size x: "))
-CHUNK_AMT_Y = int(input("Size y: "))
+CACHE_LIMIT = 15
+CHUNK_AMT = int(input("Enter chunk amount (accounts for x and y): "))
+CHUNK_AMT_X = CHUNK_AMT
+CHUNK_AMT_Y = CHUNK_AMT
 
 print(f"Generating {CHUNK_AMT_X * CHUNK_AMT_Y} chunks ({CHUNK_AMT_X}x{CHUNK_AMT_Y})")
 
@@ -34,6 +37,7 @@ BIOMES = {
 os.makedirs(WORLD_FOLDER, exist_ok=True)
 os.makedirs(WORLD_FOLDER_CHUNKS, exist_ok=True)
 os.makedirs(WORLD_FOLDER_NBTS, exist_ok=True)
+os.makedirs(WORLD_FOLDER_BIOME_MAP, exist_ok=True)
 
 # ---- CHUNK HANDLING ----
 chunk_cache = {}
@@ -71,12 +75,20 @@ def unload_old_chunks():
         chunk_cache.pop(next(iter(chunk_cache)))
 
 def generate_chunk(cx, cy):
+    biome_map = biomeMap.load_biome_map(WORLD_NAME)
+    biome = biomeMap.get_biome_at(cx, cy, biome_map)
+    biome_info = BIOMES.get(biome, BIOMES["plains"])  # Default to plains if biome not found
+    height = biome_info["height"]
+    block_types = biome_info["blocks"]
+
     chunk = {"blocks": [[STONE for _ in range(CHUNK_SIZE)] for _ in range(CHUNK_HEIGHT)]}
     for x in range(CHUNK_SIZE):
         for y in range(CHUNK_HEIGHT):
             if y <= 2:
                 chunk["blocks"][y][x] = BEDROCK
-            elif 3 <= y <= 60:
+            elif y < height:
+                chunk["blocks"][y][x] = random.choice(block_types)
+            elif y < 60:
                 chunk["blocks"][y][x] = random.choices([STONE, AIR], weights=[0.8, 0.2])[0]
             else:
                 chunk["blocks"][y][x] = STONE if random.random() < 0.02 else AIR
@@ -87,6 +99,7 @@ def generate_chunk(cx, cy):
     return chunk
 
 def generate_world():
+    biomeMap.make_biome_map(WORLD_NAME)
     def worker(x, y):
         generate_chunk(x, y)
         print(f"Generated chunk {x}, {y}")
