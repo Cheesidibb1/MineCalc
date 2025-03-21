@@ -7,23 +7,35 @@ from PIL import Image
 # ---- CONFIG ----
 MAP_SIZE = 256  # Biome map size
 CHUNK_SIZE = 16  # Each chunk is 16x16 blocks
-SCALE = 0.05  # Controls biome spread (lower value for larger islands)
+SCALE = 0.02  # Controls biome spread (lower value for larger islands)
 TEMP_SCALE = 0.05  # Controls temperature variation
-HUMIDITY_SCALE = 0.07  # Controls humidity variation
+HUMIDITY_SCALE = 0.05  # Controls humidity variation
 RIVER_SCALE = 0.05  # Larger scale for rivers
 
-# Biome IDs
-PLAINS, FOREST, MOUNTAINS, DESERT, WATER, SNOW = 0, 1, 2, 3, 4, 5
+# Load biomes configuration
+def load_json_config(filename):
+    with open(filename, "r") as f:
+        return json.load(f)
+
+biomes_config = load_json_config("config/biomes.json")
+
+# Convert biomes to a dictionary for easy access
+biomes = {biome["name"].lower(): biome for biome in biomes_config["biomes"]}
 
 # Biome Colors
 BIOME_COLORS = {
-    PLAINS: (144, 238, 144),  # Light Green
-    FOREST: (34, 139, 34),    # Dark Green
-    MOUNTAINS: (139, 137, 137),  # Gray
-    DESERT: (237, 201, 175),  # Sandy
-    WATER: (0, 0, 255),       # Blue
-    SNOW: (255, 250, 250)     # White
+    biome["name"].lower(): tuple(int(biome.get("color", "#000000")[i:i+2], 16) for i in (1, 3, 5))
+    for biome in biomes_config["biomes"]
 }
+
+# Add sub-biomes to BIOME_COLORS
+for biome in biomes_config["biomes"]:
+    if "sub_biomes" in biome:
+        for sub_biome in biome["sub_biomes"]:
+            BIOME_COLORS[sub_biome["name"].lower()] = tuple(int(sub_biome.get("color", "#000000")[i:i+2], 16) for i in (1, 3, 5))
+
+# Add a default color for missing biomes
+DEFAULT_BIOME_COLOR = (0, 0, 0)  # Black
 
 # Ensure world folder exists
 def ensure_world_folder(world_name):
@@ -36,12 +48,12 @@ def ensure_world_folder(world_name):
 def generate_biome_map(seed=42):
     """Generates a biome map with temperature and humidity layers."""
     np.random.seed(seed)
-    terrain_noise = PerlinNoise(octaves=2, seed=seed)  # Lower frequency for larger islands
-    river_noise = PerlinNoise(octaves=3, seed=seed + 100)
-    temp_noise = PerlinNoise(octaves=2, seed=seed + 200)
-    humidity_noise = PerlinNoise(octaves=2, seed=seed + 300)
+    terrain_noise = PerlinNoise(octaves=5, seed=seed)  # Adjust octaves for more natural terrain
+    river_noise = PerlinNoise(octaves=6, seed=seed + 100)
+    temp_noise = PerlinNoise(octaves=4, seed=seed + 200)
+    humidity_noise = PerlinNoise(octaves=4, seed=seed + 300)
 
-    biome_map = np.full((MAP_SIZE, MAP_SIZE), WATER, dtype=int)  # Default to water
+    biome_map = np.full((MAP_SIZE, MAP_SIZE), "ocean", dtype=object)  # Default to ocean
 
     for x in range(MAP_SIZE):
         for y in range(MAP_SIZE):
@@ -54,25 +66,33 @@ def generate_biome_map(seed=42):
             distance = np.sqrt((x - MAP_SIZE / 2) ** 2 + (y - MAP_SIZE / 2) ** 2) / (MAP_SIZE / 2)
 
             # Determine base biome by elevation and distance
-            if terrain_value > 0.1 and distance < 0.5:  # Increase threshold for land and limit distance
-                if terrain_value < 0.2:
-                    biome = PLAINS
-                elif terrain_value < 0.4:
-                    biome = FOREST
+            if terrain_value > 0.1 and distance < 0.7:  # Increase threshold for land and limit distance
+                if terrain_value < 0.3:
+                    biome = "plains"
+                elif terrain_value < 0.5:
+                    biome = "forest"
                 else:
-                    biome = MOUNTAINS
+                    biome = "mountains"
 
                 # Apply temperature & humidity constraints
-                if temp_value < -0.1 and terrain_value > 0.3:
-                    biome = SNOW  # Snow biome in cold areas
-                if temp_value > 0.3 and humidity_value < 0:
-                    biome = DESERT  # Desert in hot, dry regions
+                if temp_value < -0.2 and terrain_value > 0.4:
+                    biome = "tundra"  # Snow biome in cold areas
+                if temp_value > 0.4 and humidity_value < 0.3:
+                    biome = "desert"  # Desert in hot, dry regions
 
                 # Overlay river (low values = water)
-                if river_value < -0.0:
-                    biome = WATER
+                if river_value < -0.1:
+                    biome = "water"
 
                 biome_map[x][y] = biome
+            else:
+                # Determine ocean sub-biomes based on temperature
+                if temp_value < -0.4:
+                    biome_map[x][y] = "ice ocean"
+                elif temp_value < -0.2:
+                    biome_map[x][y] = "cold ocean"
+                else:
+                    biome_map[x][y] = "ocean"
 
     return biome_map
 
@@ -87,10 +107,10 @@ def save_biome_map(biome_map, world_name):
 def load_biome_map(world_name):
     """Loads a biome map from JSON or generates a new one."""
     world_folder = ensure_world_folder(world_name)
-    filename = os.path.join(world_folder, "biome_map","biome_map.json")
+    filename = os.path.join(world_folder, "biome_map", "biome_map.json")
     if os.path.exists(filename):
         with open(filename, "r") as f:
-            return np.array(json.load(f))
+            return np.array(json.load(f), dtype=object)
     else:
         biome_map = generate_biome_map()
         save_biome_map(biome_map, world_name)
@@ -118,13 +138,17 @@ def blend_biomes(x, y, biome_map):
 def generate_biome_image(biome_map, world_name):
     """Generates an image representation of the biome map."""
     world_folder = ensure_world_folder(world_name)
-    filename = os.path.join(world_folder, "biome_map","biome_map.png")
+    filename = os.path.join(world_folder, "biome_map", "biome_map.png")
     img = Image.new("RGB", (MAP_SIZE, MAP_SIZE))
     pixels = img.load()
     
     for x in range(MAP_SIZE):
         for y in range(MAP_SIZE):
-            pixels[x, y] = BIOME_COLORS[biome_map[x][y]]
+            biome = biome_map[x][y]
+            color = BIOME_COLORS.get(biome, DEFAULT_BIOME_COLOR)
+            if color == DEFAULT_BIOME_COLOR:
+                print(f"Missing color for biome: {biome}")
+            pixels[x, y] = color
     
     img.save(filename)
     print(f"Biome map image saved as {filename}")
